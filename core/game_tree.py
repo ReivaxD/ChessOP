@@ -173,6 +173,13 @@ class GameTree(QObject):
             return True
         return False
 
+    def go_to_end(self):
+        """Navigue jusqu'au dernier coup de la ligne principale."""
+        node = self._current
+        while node.children:
+            node = node.children[0]
+        self.go_to_node(node)
+
     def delete_current_variation(self):
         """Supprime le nœud courant et ses descendants."""
         node = self._current
@@ -199,6 +206,36 @@ class GameTree(QObject):
             else:
                 next_pgn = pgn_node.add_variation(child.move)
             self._build_pgn_node(next_pgn, child)
+
+    def load_pgn(self, path: str) -> bool:
+        """Charge un fichier PGN avec variantes dans l'arbre."""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                game = chess.pgn.read_game(f)
+            if game is None:
+                return False
+            self._root    = Node(chess.Board())
+            self._current = self._root
+            self._import_pgn_node(game, self._root)
+            # Naviguer jusqu'au dernier coup de la ligne principale
+            node = self._root
+            while node.children:
+                node = node.children[0]
+            self._current = node
+            self.tree_changed.emit()
+            self._emit_all()
+            self.turn_changed.emit(self.current_turn)
+            if node.move:
+                self.move_made.emit(node.move)
+            return True
+        except Exception as e:
+            print(f"Erreur load_pgn : {e}")
+            return False
+
+    def _import_pgn_node(self, pgn_node, tree_node: Node):
+        for variation in pgn_node.variations:
+            child = tree_node.add_child(variation.move)
+            self._import_pgn_node(variation, child)
 
     def get_fen(self) -> str:
         return self._current.board.fen()

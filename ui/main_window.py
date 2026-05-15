@@ -2,6 +2,7 @@
 Fenêtre principale — utilise GameTree pour les variantes.
 """
 import chess
+import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QLabel, QSlider, QGroupBox, QTextEdit,
@@ -15,8 +16,11 @@ from core.game_tree import GameTree, Node
 from core.engine import StockfishController
 from ui.board_widget import BoardWidget
 from ui.move_tree_widget import MoveTreeWidget
+from ui.variants_panel import VariantsPanel
 
 ANALYSIS_PANEL_WIDTH = 260
+VARIANTS_PANEL_WIDTH  = 240
+VARIANTS_PANEL_WIDTH  = 240
 
 
 class MainWindow(QMainWindow):
@@ -24,7 +28,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ChessOP")
-        self.resize(1150, 800)
+        self.resize(1200, 800)
 
         self.game   = GameTree(self)
         self.engine = StockfishController(self)
@@ -48,6 +52,18 @@ class MainWindow(QMainWindow):
         self.root_layout = QHBoxLayout(central)
         self.root_layout.setSpacing(12)
         self.root_layout.setContentsMargins(12, 12, 12, 12)
+
+        # Panneau variantes (gauche, masqué par défaut)
+        import os
+        _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # ---- Panneau variantes (gauche, masqué par défaut) ----
+        import os
+        _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self._variants_folder = os.path.join(_base, "variantes")
+        self.variants_panel = VariantsPanel(self._variants_folder)
+        self.variants_panel.setFixedWidth(0)
+        self.variants_panel.setVisible(False)
+        self.root_layout.addWidget(self.variants_panel)
 
         self.board_widget = BoardWidget()
         self.board_widget.setSizePolicy(
@@ -97,11 +113,16 @@ class MainWindow(QMainWindow):
         self.btn_hint.setStyleSheet(
             "QPushButton:checked { background-color: #2a7a2a; color: white; font-weight: bold; }"
         )
+        self.btn_load_var = QPushButton("Charger variante")
+        self.btn_load_var.setCheckable(True)
+        self.btn_load_var.setStyleSheet(
+            "QPushButton:checked { background-color: #313244; color: #89b4fa; font-weight: bold; }"
+        )
         self.btn_del_var = QPushButton("Supprimer cette variante")
         self.btn_del_var.setStyleSheet("color: #c0392b;")
-
         for btn in (self.btn_new, self.btn_back, self.btn_fwd,
-                    self.btn_flip, self.btn_hint, self.btn_del_var):
+                    self.btn_flip, self.btn_hint, self.btn_del_var,
+                    self.btn_load_var):
             btn.setMinimumHeight(32)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             ctrl.addWidget(btn)
@@ -209,7 +230,9 @@ class MainWindow(QMainWindow):
         self.btn_flip.clicked.connect(self.board_widget.flip_board)
         self.btn_hint.toggled.connect(self._toggle_hint)
         self.btn_engine_move.clicked.connect(self._engine_play)
+        self.btn_load_var.toggled.connect(self._toggle_variants_panel)
         self.btn_del_var.clicked.connect(self._delete_variation)
+        self.variants_panel.variant_load_requested.connect(self._load_variant)
         self.slider_depth.valueChanged.connect(
             lambda v: self.lbl_depth.setText(f"Profondeur : {v}"))
 
@@ -350,6 +373,32 @@ class MainWindow(QMainWindow):
     #  Boutons                                                           #
     # ---------------------------------------------------------------- #
 
+    def _toggle_variants_panel(self, checked: bool):
+        if checked:
+            self.btn_load_var.setText("✕ Fermer variantes")
+            self.variants_panel.refresh()
+            self.variants_panel.setVisible(True)
+            self.variants_panel.setFixedWidth(VARIANTS_PANEL_WIDTH)
+            self.resize(self.width() + VARIANTS_PANEL_WIDTH + 12, self.height())
+        else:
+            self.btn_load_var.setText("Charger variante")
+            self.resize(self.width() - VARIANTS_PANEL_WIDTH - 12, self.height())
+            self.variants_panel.setFixedWidth(0)
+            self.variants_panel.setVisible(False)
+
+    def _load_variant(self, path: str):
+        ok = self.game.load_pgn(path)
+        if ok:
+            self.lbl_eval.setText("Évaluation : —")
+            self.lbl_hint.setText("Conseil : —")
+            self._clear_table()
+            import os
+            self.status_bar.showMessage(f"Variante chargée : {os.path.basename(path)}")
+            # Fermer le panneau après chargement
+            self.btn_load_var.setChecked(False)
+        else:
+            self.status_bar.showMessage("Erreur lors du chargement de la variante.")
+
     def _new_game(self):
         self.game.new_game()
         self.lbl_eval.setText("Évaluation : —")
@@ -400,6 +449,8 @@ class MainWindow(QMainWindow):
             f.write(self.game.to_pgn())
         self.txt_variant_name.clear()
         self.status_bar.showMessage(f"Variante sauvegardée : {path}")
+        if self.variants_panel.isVisible():
+            self.variants_panel.refresh()
 
     def _clear_table(self):
         for i in range(5):
