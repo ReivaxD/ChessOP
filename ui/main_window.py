@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QLabel, QSlider, QGroupBox, QTextEdit,
     QStatusBar, QFileDialog, QMessageBox, QSizePolicy,
-    QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit
+    QFrame, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor
@@ -155,13 +155,7 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         hist.addWidget(self.move_tree)
 
-        self.txt_variant_name = QLineEdit()
-        self.txt_variant_name.setPlaceholderText("Nom de la variante…")
-        self.txt_variant_name.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        hist.addWidget(self.txt_variant_name)
-        btn_export = QPushButton("SAV variante")
-        btn_export.clicked.connect(self._export_pgn)
-        hist.addWidget(btn_export)
+
         side.addWidget(grp_hist)
 
         side.addStretch()
@@ -233,6 +227,7 @@ class MainWindow(QMainWindow):
         self.btn_load_var.toggled.connect(self._toggle_variants_panel)
         self.btn_del_var.clicked.connect(self._delete_variation)
         self.variants_panel.variant_load_requested.connect(self._load_variant)
+        self.variants_panel.save_requested.connect(self._export_pgn_to_folder)
         self.slider_depth.valueChanged.connect(
             lambda v: self.lbl_depth.setText(f"Profondeur : {v}"))
 
@@ -429,29 +424,21 @@ class MainWindow(QMainWindow):
                                   depth=self.slider_depth.value(), time_limit=2.0)
         self.status_bar.showMessage("Stockfish joue…")
 
-    def _export_pgn(self):
-        import os, datetime, re
-        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        folder = os.path.join(base, "variantes")
-        os.makedirs(folder, exist_ok=True)
-
-        # Nom saisi ou horodatage par défaut
-        raw = self.txt_variant_name.text().strip()
-        if raw:
-            # Nettoyer les caractères interdits dans un nom de fichier
-            safe = re.sub(r'[\/:*?"<>|]', "_", raw)
-        else:
+    def _export_pgn_to_folder(self, folder: str, name: str):
+        import os, re as _re
+        safe = _re.sub(r'[\/:*?"<>|]', "_", name.strip())
+        if not safe:
+            import datetime
             safe = "variante_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
+        os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, f"{safe}.pgn")
-
         with open(path, "w", encoding="utf-8") as f:
             f.write(self.game.to_pgn())
-        self.txt_variant_name.clear()
-        self.status_bar.showMessage(f"Variante sauvegardée : {path}")
+        self.status_bar.showMessage(f"Variante sauvegardee : {os.path.basename(path)}")
         if self.variants_panel.isVisible():
             self.variants_panel.refresh()
 
+    
     def _clear_table(self):
         for i in range(5):
             for col in range(3):
