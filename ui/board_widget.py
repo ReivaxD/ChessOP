@@ -2,13 +2,14 @@
 Widget PyQt6 représentant l'échiquier interactif.
 """
 import chess
+import math
 from typing import Optional
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import (
-    QPainter, QColor, QFont, QPen,
+    QPainter, QColor, QFont, QPen, QBrush, QPolygonF,
     QMouseEvent, QPaintEvent
 )
-from PyQt6.QtCore import Qt, QRect, pyqtSignal
+from PyQt6.QtCore import Qt, QRect, QPointF, pyqtSignal
 
 PALETTE = {
     "light_square":    QColor("#F0D9B5"),
@@ -52,6 +53,7 @@ class BoardWidget(QWidget):
         self._last_move: Optional[chess.Move] = None
         self._flipped: bool = False
         self._human_color: chess.Color = chess.WHITE
+        self._hint_move: Optional[chess.Move] = None
         self.setMinimumSize(400, 400)
 
     # ---------------------------------------------------------------- #
@@ -68,6 +70,10 @@ class BoardWidget(QWidget):
 
     def set_last_move(self, move: Optional[chess.Move]):
         self._last_move = move
+        self.update()
+
+    def set_hint_move(self, move: Optional[chess.Move]):
+        self._hint_move = move
         self.update()
 
     def flip_board(self):
@@ -127,7 +133,11 @@ class BoardWidget(QWidget):
                 is_light = (f + r) % 2 != 0
                 self._draw_square(painter, rect, square, is_light, sq)
 
-        # 3. Coordonnées dans la bordure (par-dessus tout)
+        # 3. Flèche conseil
+        if self._hint_move:
+            self._draw_arrow(painter, self._hint_move, sq, ox, oy)
+
+        # 4. Coordonnées dans la bordure (par-dessus tout)
         self._draw_coordinates(painter, sq, ox, oy)
 
         painter.end()
@@ -187,6 +197,62 @@ class BoardWidget(QWidget):
                 Qt.AlignmentFlag.AlignCenter,
                 chess.FILE_NAMES[file_num],
             )
+
+    def _draw_arrow(self, p: QPainter, move: chess.Move,
+                    sq: int, ox: int, oy: int):
+        """Dessine une flèche du carré source au carré cible."""
+        def center(square: chess.Square) -> QPointF:
+            f = chess.square_file(square)
+            r = chess.square_rank(square)
+            if self._flipped:
+                col = 7 - f
+                row = r
+            else:
+                col = f
+                row = 7 - r
+            return QPointF(ox + col * sq + sq / 2, oy + row * sq + sq / 2)
+
+        src = center(move.from_square)
+        dst = center(move.to_square)
+
+        dx = dst.x() - src.x()
+        dy = dst.y() - src.y()
+        length = math.hypot(dx, dy)
+        if length == 0:
+            return
+
+        # Paramètres visuels
+        shaft_w  = sq * 0.18          # épaisseur du trait
+        head_len = sq * 0.38          # longueur de la tête
+        head_w   = sq * 0.32          # largeur de la tête
+        color    = QColor(255, 170, 0, 210)   # orange semi-transparent
+
+        ux, uy = dx / length, dy / length     # vecteur unitaire
+        px, py = -uy, ux                      # perpendiculaire
+
+        # Point d'arrivée raccourci pour laisser place à la tête
+        shaft_end_x = dst.x() - ux * head_len
+        shaft_end_y = dst.y() - uy * head_len
+
+        # Corps de la flèche (rectangle)
+        shaft = QPolygonF([
+            QPointF(src.x() + px * shaft_w / 2, src.y() + py * shaft_w / 2),
+            QPointF(src.x() - px * shaft_w / 2, src.y() - py * shaft_w / 2),
+            QPointF(shaft_end_x - px * shaft_w / 2, shaft_end_y - py * shaft_w / 2),
+            QPointF(shaft_end_x + px * shaft_w / 2, shaft_end_y + py * shaft_w / 2),
+        ])
+
+        # Tête de flèche (triangle)
+        head = QPolygonF([
+            QPointF(dst.x(), dst.y()),
+            QPointF(shaft_end_x + px * head_w / 2, shaft_end_y + py * head_w / 2),
+            QPointF(shaft_end_x - px * head_w / 2, shaft_end_y - py * head_w / 2),
+        ])
+
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(color))
+        p.drawPolygon(shaft)
+        p.drawPolygon(head)
 
     def _square_background(self, square: chess.Square, is_light: bool) -> QColor:
         king_sq = self._board.king(self._board.turn)

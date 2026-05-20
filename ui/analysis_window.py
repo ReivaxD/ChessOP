@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QStatusBar, QFileDialog, QMessageBox, QSizePolicy,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
 
 from core.game_tree import GameTree, Node
@@ -23,7 +23,9 @@ VARIANTS_PANEL_WIDTH  = 240
 VARIANTS_PANEL_WIDTH  = 240
 
 
-class MainWindow(QMainWindow):
+class AnalysisWindow(QMainWindow):
+
+    home_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -87,6 +89,16 @@ class MainWindow(QMainWindow):
     def _build_controls_panel(self) -> QVBoxLayout:
         side = QVBoxLayout()
         side.setSpacing(10)
+
+        # Bouton retour accueil
+        self.btn_home = QPushButton("⌂  Accueil")
+        self.btn_home.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_home.setStyleSheet(
+            "color: #89b4fa; background: #313244; border-radius: 4px; font-weight: bold;"
+        )
+        self.btn_home.setMinimumHeight(34)
+        self.btn_home.clicked.connect(self._go_home)
+        side.addWidget(self.btn_home)
 
         self.lbl_turn = QLabel("Tour : Blancs")
         self.lbl_turn.setFont(QFont("Arial", 13, QFont.Weight.Bold))
@@ -239,6 +251,7 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------------- #
 
     def _on_human_move(self, move: chess.Move):
+        self.board_widget.set_hint_move(None)
         self.game.make_move(move)
 
     def _on_board_changed(self, board: chess.Board):
@@ -276,6 +289,7 @@ class MainWindow(QMainWindow):
         if self._engine_is_playing:
             self._engine_is_playing = False
             self.lbl_hint.setText("Conseil : —")
+            self.board_widget.set_hint_move(None)
             self.game.make_move(move)
         else:
             try:
@@ -284,6 +298,7 @@ class MainWindow(QMainWindow):
                 san = move.uci()
             self.lbl_hint.setText(f"Conseil : {san}")
             self.status_bar.showMessage(f"Conseil : {san}  ({eval_text})")
+            self.board_widget.set_hint_move(move)
 
     def _on_multipv(self, moves: list):
         self.lbl_thinking.setText("Analyse terminée")
@@ -338,6 +353,7 @@ class MainWindow(QMainWindow):
             self.btn_hint.setText("Conseil automatique : OFF")
             self._show_analysis_panel(False)
             self.lbl_hint.setText("Conseil : —")
+            self.board_widget.set_hint_move(None)
             self.status_bar.showMessage("Conseil désactivé")
 
     def _show_analysis_panel(self, show: bool):
@@ -452,6 +468,10 @@ class MainWindow(QMainWindow):
             self.game.go_forward()
         else:
             super().keyPressEvent(event)
+
+    def _go_home(self):
+        self.hide()
+        self.home_requested.emit()
 
     def closeEvent(self, event):
         self.engine.unload()
