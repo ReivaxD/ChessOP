@@ -94,6 +94,8 @@ class MainLauncher(QMainWindow):
         self.resize(1200, 800)
         self._child_windows = {}
         self._build_ui()
+        from PyQt6.QtWidgets import QApplication
+        QApplication.instance().aboutToQuit.connect(self._cleanup)
 
     def _build_ui(self):
         central = QWidget()
@@ -180,3 +182,9 @@ class MainLauncher(QMainWindow):
     def _show_launcher(self):
         self.show()
         self.activateWindow()
+
+    def _cleanup(self):
+        """Arrêt propre de tous les moteurs avant fermeture."""
+        for win in self._child_windows.values():
+            if hasattr(win, "engine"):
+                win.engine.unload()

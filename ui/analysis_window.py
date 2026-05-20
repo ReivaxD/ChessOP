@@ -476,3 +476,7 @@ class AnalysisWindow(QMainWindow):
     def closeEvent(self, event):
         self.engine.unload()
         super().closeEvent(event)
+
+    def hideEvent(self, event):
+        """Appelé aussi quand on revient à l'accueil — rien à faire."""
+        super().hideEvent(event)

@@ -15,7 +15,10 @@ def main():
     launcher = MainLauncher()
     launcher.show()
 
-    sys.exit(app.exec())
+    code = app.exec()
+    # S'assurer que le moteur est bien arrêté avant de quitter
+    app.closeAllWindows()
+    sys.exit(code)
 
 
 if __name__ == "__main__":
