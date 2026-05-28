@@ -158,7 +158,7 @@ class MainLauncher(QMainWindow):
         root.addStretch()
 
         # Version
-        lbl_version = QLabel("v1.5.0")
+        lbl_version = QLabel("v1.6.0")
         lbl_version.setAlignment(Qt.AlignmentFlag.AlignRight)
         lbl_version.setStyleSheet("color: #313244; font-size: 10px;")
         root.addWidget(lbl_version)

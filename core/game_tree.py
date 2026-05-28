@@ -18,6 +18,8 @@ class Node:
         self.parent   = parent
         self.children: list["Node"] = []
         self.comment  = ""
+        self.eval_cp: Optional[float] = None   # évaluation Stockfish après ce coup
+        self.quality: str = ""                  # icône qualité du coup
 
     @property
     def is_root(self) -> bool:
@@ -58,6 +60,45 @@ class Node:
             # coup noir : afficher le numéro seulement si nécessaire
             # (dans le rendu on n'affiche '...' que pour les variantes)
             return f"{full}."
+
+    @staticmethod
+    def classify_move(delta_cp: float, is_best: bool) -> str:
+        """
+        Calcule la qualité d'un coup selon la perte en centipions.
+        delta_cp = eval_avant - eval_apres (du point de vue du joueur qui vient de jouer)
+        Positif = perte, négatif = gain.
+        """
+        #print(is_best)
+        if delta_cp < -90 and is_best:
+            return "!!!"
+        if delta_cp < -80:
+            return "!!"   # Brillant : meilleur coup + gain inattendu
+        if delta_cp < -15:
+            return "!"    # Excellent
+        if delta_cp < 25:
+            return "✓✓"  # Très bon
+        if delta_cp < 70:
+            return "✓"   # Bon
+        if delta_cp < 150:
+            return "?!"   # Imprécis
+        if delta_cp < 300:
+            return "?"    # Erreur
+        return "??"       # Blunder
+
+    @staticmethod
+    def quality_color(quality: str) -> str:
+        colors = {
+            "!!!": "#ffffff",
+            "!!": "#00f7ff",
+            "!":  "#0f7de4",
+            "✓✓": "#01B136",
+            "✓":  "#58d68d",
+            "?!": "#f39c12",
+            "?":  "#e67e22",
+            "✕":  "#db4747",
+            "??": "#e92e19",
+        }
+        return colors.get(quality, "#888888")
 
     def path_from_root(self) -> list["Node"]:
         """Retourne la liste des nœuds de la racine jusqu'ici."""

@@ -35,6 +35,7 @@ class MoveInfo:
 class EngineWorker(QObject):
     best_move_found  = pyqtSignal(chess.Move, float)
     multipv_ready    = pyqtSignal(list)          # list[MoveInfo]
+    eval_ready       = pyqtSignal(str, float)    # (fen, score_cp)
     error_occurred   = pyqtSignal(str)
 
     def __init__(self, engine_path: str, parent=None):
@@ -72,6 +73,21 @@ class EngineWorker(QObject):
         except Exception as e:
             self.error_occurred.emit(f"Erreur moteur : {e}")
 
+    @pyqtSlot(chess.Board, int)
+    def evaluate_position(self, board: chess.Board, depth: int):
+        """Évalue silencieusement une position et retourne le score."""
+        if not self._engine:
+            return
+        try:
+            info = self._engine.analyse(board, chess.engine.Limit(depth=depth))
+            score_cp = 0.0
+            if info.get("score"):
+                pov = info["score"].white()
+                score_cp = 30000 if (pov.is_mate() and pov.mate() > 0) else                           -30000 if pov.is_mate() else float(pov.score() or 0)
+            self.eval_ready.emit(board.fen(), score_cp)
+        except Exception as e:
+            self.error_occurred.emit(f"Erreur eval : {e}")
+
     @pyqtSlot(chess.Board, int, int)
     def find_multipv(self, board: chess.Board, depth: int, num_lines: int):
         """Calcule les N meilleurs coups (MultiPV)."""
@@ -107,8 +123,10 @@ class EngineWorker(QObject):
 class StockfishController(QObject):
     best_move_ready = pyqtSignal(chess.Move, float)
     multipv_ready   = pyqtSignal(list)           # list[MoveInfo]
+    eval_ready      = pyqtSignal(str, float)     # (fen, score_cp)
     engine_error    = pyqtSignal(str)
     engine_ready    = pyqtSignal(bool)
+    _eval_trigger   = pyqtSignal(chess.Board, int)  # interne thread-safe
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -126,7 +144,9 @@ class StockfishController(QObject):
         self._worker.moveToThread(self._thread)
         self._worker.best_move_found.connect(self.best_move_ready)
         self._worker.multipv_ready.connect(self.multipv_ready)
+        self._worker.eval_ready.connect(self.eval_ready)
         self._worker.error_occurred.connect(self.engine_error)
+        self._eval_trigger.connect(self._worker.evaluate_position)
         self._thread.started.connect(self._worker.start_engine)
         self._thread.start()
         self._available = True
@@ -145,6 +165,11 @@ class StockfishController(QObject):
     def request_multipv(self, board: chess.Board, depth: int = 15, num_lines: int = 5):
         if self._available and self._worker:
             self._worker.find_multipv(board.copy(), depth, num_lines)
+
+    def request_eval(self, board: chess.Board, depth: int = 12):
+        """Évalue silencieusement une position (thread-safe via signal)."""
+        if self._available and self._worker:
+            self._eval_trigger.emit(board.copy(), depth)
 
     def request_analysis(self, board: chess.Board, depth: int = 18):
         self.request_multipv(board, depth)

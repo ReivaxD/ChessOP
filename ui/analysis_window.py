@@ -18,7 +18,7 @@ from ui.board_widget import BoardWidget
 from ui.move_tree_widget import MoveTreeWidget
 from ui.variants_panel import VariantsPanel
 
-ANALYSIS_PANEL_WIDTH = 260
+ANALYSIS_PANEL_WIDTH = 380
 VARIANTS_PANEL_WIDTH  = 240
 VARIANTS_PANEL_WIDTH  = 240
 
@@ -34,6 +34,12 @@ class AnalysisWindow(QMainWindow):
 
         self.game   = GameTree(self)
         self.engine = StockfishController(self)
+        self._pending_move: chess.Move = None   # coup en attente d'éval
+        self._best_move_before: chess.Move = None  # meilleur coup avant le coup joué
+        self._eval_in_progress: bool = False       # bloque _auto_hint pendant l'éval
+        self._best_moves_cache: dict = {}           # {fen: meilleur_coup} pour is_best variante
+        self._eval_stage: int = 0               # 0=inactif 1=avant 2=après
+        self._eval_queue: list = []             # file d'attente pour éval variante chargée
 
         self._build_ui()
         self._connect_signals()
@@ -61,7 +67,7 @@ class AnalysisWindow(QMainWindow):
         # ---- Panneau variantes (gauche, masqué par défaut) ----
         import os
         _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self._variants_folder = os.path.join(_base, "variantes")
+        self._variants_folder = os.path.join(_base, "ressources", "echec", "analyses")
         self.variants_panel = VariantsPanel(self._variants_folder)
         self.variants_panel.setFixedWidth(0)
         self.variants_panel.setVisible(False)
@@ -207,7 +213,44 @@ class AnalysisWindow(QMainWindow):
         self.lbl_thinking.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_thinking.setStyleSheet("color:#6c7086; font-style:italic;")
         layout.addWidget(self.lbl_thinking)
-        layout.addStretch()
+
+        # Séparateur
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #313244;")
+        layout.addWidget(sep)
+
+        # Titre ligne principale
+        title2 = QLabel("Ligne principale")
+        title2.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        title2.setStyleSheet("color: #cdd6f4;")
+        title2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title2)
+
+        # Tableau ligne principale
+        self.mainline_table = QTableWidget(0, 5)
+        self.mainline_table.setHorizontalHeaderLabels(["#", "Blancs", "★", "Noirs", "★"])
+        hh = self.mainline_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.mainline_table.setColumnWidth(0, 28)
+        self.mainline_table.setColumnWidth(2, 30)
+        self.mainline_table.setColumnWidth(4, 30)
+        self.mainline_table.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.mainline_table.verticalHeader().setVisible(False)
+        self.mainline_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.mainline_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.mainline_table.setStyleSheet("""
+            QTableWidget { background:#181825; color:#cdd6f4;
+                           gridline-color:#313244; border:none; font-size:12px; }
+            QHeaderView::section { background:#313244; color:#cdd6f4;
+                                   font-weight:bold; border:none; padding:4px; }
+            QTableWidget::item { padding:4px; }
+        """)
+        layout.addWidget(self.mainline_table, stretch=1)
         return frame
 
     # ---------------------------------------------------------------- #
@@ -227,6 +270,7 @@ class AnalysisWindow(QMainWindow):
 
         self.engine.best_move_ready.connect(self._on_engine_move)
         self.engine.multipv_ready.connect(self._on_multipv)
+        self.engine.eval_ready.connect(self._on_eval_ready)
         self.engine.engine_error.connect(self._on_engine_error)
         self.engine.engine_ready.connect(self._on_engine_ready)
 
@@ -252,7 +296,19 @@ class AnalysisWindow(QMainWindow):
 
     def _on_human_move(self, move: chess.Move):
         self.board_widget.set_hint_move(None)
-        self.game.make_move(move)
+        self._pending_move = move
+        node = self.game.current_node
+        if node.eval_cp is not None:
+            # Eval déjà connue → jouer directement et évaluer après
+            self._eval_stage = 2
+            self._eval_before_val = node.eval_cp
+            self.game.make_move(move)
+            self.engine.request_eval(self.game.board, depth=14)
+        else:
+            # Eval inconnue → évaluer d'abord la position courante
+            self._eval_stage = 1
+            self._eval_before_val = 0.0
+            self.engine.request_eval(node.board, depth=14)
 
     def _on_board_changed(self, board: chess.Board):
         self._refresh_tree()
@@ -275,10 +331,177 @@ class AnalysisWindow(QMainWindow):
 
     def _refresh_tree(self):
         self.move_tree.refresh(self.game.current_node)
+        self._refresh_mainline()
+
+    def _refresh_mainline(self):
+        """Affiche la ligne principale dans le tableau 2 coups par ligne."""
+        if not hasattr(self, "mainline_table"):
+            return
+        # Reconstruire la ligne principale depuis la racine
+        from core.game_tree import Node
+        moves_san = []
+        board = chess.Board()
+        node = self.game.root
+        while node.children:
+            node = node.children[0]
+            try:
+                san = board.san(node.move)
+                board.push(node.move)
+                moves_san.append(san)
+            except Exception:
+                break
+
+        # Remplir le tableau par paires
+        pairs = []
+        for i in range(0, len(moves_san), 2):
+            white = moves_san[i]
+            black = moves_san[i + 1] if i + 1 < len(moves_san) else ""
+            pairs.append((i // 2 + 1, white, black))
+
+        # Collecter les nœuds de la ligne principale pour les qualités
+        main_nodes = []
+        nd = self.game.root
+        while nd.children:
+            nd = nd.children[0]
+            main_nodes.append(nd)
+
+        current_ply = len([n for n in self.game.current_node.path_from_root() if n.move])
+        self.mainline_table.setRowCount(len(pairs))
+
+        for row, (num, white, black) in enumerate(pairs):
+            wp = row * 2 + 1   # ply blanc
+            bp = row * 2 + 2   # ply noir
+            wn = main_nodes[wp - 1] if wp - 1 < len(main_nodes) else None
+            bn = main_nodes[bp - 1] if bp - 1 < len(main_nodes) else None
+
+            # Col 0 : numéro
+            i0 = QTableWidgetItem(str(num))
+            i0.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.mainline_table.setItem(row, 0, i0)
+
+            # Col 1 : coup blanc
+            i1 = QTableWidgetItem(white)
+            i1.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if wp == current_ply:
+                i1.setForeground(QColor("#a6e3a1"))
+                i1.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+            self.mainline_table.setItem(row, 1, i1)
+
+            # Col 2 : icône blanc
+            from core.game_tree import Node as _N
+            q_w = wn.quality if wn else ""
+            i2 = QTableWidgetItem(q_w)
+            i2.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if q_w:
+                i2.setForeground(QColor(_N.quality_color(q_w)))
+                i2.setFont(QFont("Arial", 9, QFont.Weight.Bold))
+            self.mainline_table.setItem(row, 2, i2)
+
+            # Col 3 : coup noir
+            i3 = QTableWidgetItem(black)
+            i3.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if bp == current_ply:
+                i3.setForeground(QColor("#a6e3a1"))
+                i3.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+            self.mainline_table.setItem(row, 3, i3)
+
+            # Col 4 : icône noir
+            q_b = bn.quality if bn else ""
+            i4 = QTableWidgetItem(q_b)
+            i4.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if q_b:
+                i4.setForeground(QColor(_N.quality_color(q_b)))
+                i4.setFont(QFont("Arial", 9, QFont.Weight.Bold))
+            self.mainline_table.setItem(row, 4, i4)
+
+        if current_ply > 0:
+            self.mainline_table.scrollToItem(
+                self.mainline_table.item(max(0, (current_ply - 1) // 2), 0)
+            )
 
     _engine_is_playing: bool = False
 
+    def _on_eval_ready(self, fen: str, score_cp: float):
+        """Reçoit une évaluation Stockfish — gère le pipeline en 2 étapes."""
+        from core.game_tree import Node
+
+        # Mode éval variante chargée — traitement séquentiel
+        if self._eval_stage == 10:
+            if self._eval_queue:
+                node, _ = self._eval_queue.pop(0)
+                node.eval_cp = score_cp
+                parent = node.parent
+                if parent and parent.eval_cp is not None:
+                    if parent.board.turn == chess.WHITE:
+                        delta = parent.eval_cp - score_cp
+                    else:
+                        delta = score_cp - parent.eval_cp
+                    # is_best : vérifier si le coup joué était le meilleur
+                    parent_fen = parent.board.fen() if parent else None
+                    best = self._best_moves_cache.get(parent_fen)
+                    is_best = (best is not None and best == node.move)
+                    node.quality = Node.classify_move(delta, is_best)
+            self._process_eval_queue()
+            return
+
+        if self._eval_stage == 1:
+            # Étape 1 : on vient d'évaluer AVANT le coup → jouer maintenant
+            self._eval_before_val = score_cp
+            self.game.current_node.eval_cp = score_cp
+            self._eval_stage = 2
+            self.game.make_move(self._pending_move)
+            self.engine.request_eval(self.game.board, depth=14)
+
+        elif self._eval_stage == 2:
+            # Étape 2 : on vient d'évaluer APRÈS le coup → calculer qualité
+            self._eval_stage = 0
+            node = self.game.current_node
+            if node.is_root:
+                return
+            node.eval_cp = score_cp
+
+            # Delta du point de vue du joueur qui vient de jouer
+            if node.parent and node.parent.board.turn == chess.WHITE:
+                delta = self._eval_before_val - score_cp
+            else:
+                delta = score_cp - self._eval_before_val
+
+            is_best = (self._best_move_before == node.move)
+            node.quality = Node.classify_move(delta, is_best)
+            self._eval_in_progress = False
+            self._refresh_mainline()
+
+        else:
+            # Éval de conseil ou autre — mettre à jour le nœud courant
+            node = self.game.current_node
+            if not node.is_root:
+                node.eval_cp = score_cp
+
     def _on_engine_move(self, move: chess.Move, score: float):
+        self._last_best_move = move   # mémoriser le meilleur coup Stockfish
+        # Stocker dans le cache pour is_best lors du chargement variante
+        if hasattr(self, '_best_moves_cache') and self._eval_stage != 3:
+            # Associer ce meilleur coup aux FEN en attente dans le cache
+            for fen, val in self._best_moves_cache.items():
+                if val is None:
+                    self._best_moves_cache[fen] = move
+                    break
+
+        # Stage 3 : on a le meilleur coup, maintenant lancer l'éval
+        if self._eval_stage == 3:
+            self._best_move_before = move
+            node = self.game.current_node
+            if self._eval_before_val is not None:
+                # Eval connue → jouer et évaluer après
+                self._eval_stage = 2
+                self.game.make_move(self._pending_move)
+                self.engine.request_eval(self.game.board, depth=14)
+            else:
+                # Eval inconnue → évaluer avant puis jouer
+                self._eval_stage = 1
+                self._eval_before_val = 0.0
+                self.engine.request_eval(node.board, depth=14)
+            return
         if abs(score) >= 29000:
             eval_text = f"Évaluation : Mat {'+' if score > 0 else '-'}"
         else:
@@ -302,6 +525,10 @@ class AnalysisWindow(QMainWindow):
 
     def _on_multipv(self, moves: list):
         self.lbl_thinking.setText("Analyse terminée")
+        # Stocker le meilleur coup par FEN pour is_best lors du chargement variante
+        if moves:
+            # On ne peut pas retrouver le FEN ici, on utilise une queue séparée
+            pass
         board = self.game.board
         for i in range(5):
             if i < len(moves):
@@ -367,7 +594,7 @@ class AnalysisWindow(QMainWindow):
             self.analysis_panel.setVisible(False)
 
     def _auto_hint(self):
-        if self.btn_hint.isChecked() and not self._engine_is_playing:
+        if self.btn_hint.isChecked() and not self._engine_is_playing and not self._eval_in_progress:
             self._do_hint()
 
     def _do_hint(self):
@@ -405,10 +632,43 @@ class AnalysisWindow(QMainWindow):
             self._clear_table()
             import os
             self.status_bar.showMessage(f"Variante chargée : {os.path.basename(path)}")
-            # Fermer le panneau après chargement
             self.btn_load_var.setChecked(False)
+            # Lancer l'éval en chaîne de tous les nœuds de la ligne principale
+            self._start_variant_eval()
         else:
             self.status_bar.showMessage("Erreur lors du chargement de la variante.")
+
+    def _start_variant_eval(self):
+        """Construit la file d'éval — racine + tous les nœuds de la ligne principale."""
+        self._eval_queue = []
+        self._best_moves_cache = {}
+        root = self.game.root
+        self._eval_queue.append((root, None))
+        node = root
+        while node.children:
+            node = node.children[0]
+            self._eval_queue.append((node, None))
+        # Demander le meilleur coup pour chaque position PARENT
+        # (pour savoir si le coup joué était le meilleur)
+        nd = root
+        while nd.children:
+            # Stocker le meilleur coup pour chaque position
+            fen = nd.board.fen()
+            self._best_moves_cache[fen] = None  # sera rempli par _on_engine_move
+            self.engine.request_move(nd.board, depth=12, time_limit=0.3)
+            nd = nd.children[0]
+        self._process_eval_queue()
+
+    def _process_eval_queue(self):
+        """Évalue le prochain nœud de la file."""
+        if not self._eval_queue:
+            self._eval_stage = 0   # IMPORTANT : libérer le stage pour les coups humains
+            self._refresh_mainline()
+            self.status_bar.showMessage("Analyse terminée")
+            return
+        node, _ = self._eval_queue[0]
+        self._eval_stage = 10
+        self.engine.request_eval(node.board, depth=12)
 
     def _new_game(self):
         self.game.new_game()
