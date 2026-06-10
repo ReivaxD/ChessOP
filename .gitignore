@@ -1,2 +1,3 @@
 stockfish/
 ressources/echec/analyses/Mes parties
+__pycache__/
