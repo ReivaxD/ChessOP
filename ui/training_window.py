@@ -113,6 +113,21 @@ class TrainingWindow(QMainWindow):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
+        # Chemin courant
+        self._current_folder = self._training_folder
+        self.lbl_path = QLabel("/")
+        self.lbl_path.setStyleSheet("color: #89b4fa; font-size: 10px;")
+        self.lbl_path.setWordWrap(True)
+        layout.addWidget(self.lbl_path)
+
+        # Bouton dossier parent
+        self.btn_up = QPushButton("⬆  Dossier parent")
+        self.btn_up.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_up.setStyleSheet("color: #cdd6f4; background: #313244; border-radius: 4px;")
+        self.btn_up.setMinimumHeight(26)
+        self.btn_up.clicked.connect(self._go_up)
+        layout.addWidget(self.btn_up)
+
         self.file_list = QListWidget()
         self.file_list.setStyleSheet("""
             QListWidget { background: #181825; color: #cdd6f4;
@@ -121,12 +136,13 @@ class TrainingWindow(QMainWindow):
             QListWidget::item:selected { background: #313244; color: #89b4fa; }
             QListWidget::item:hover { background: #252535; }
         """)
+        self.file_list.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self.file_list)
 
         btn_refresh = QPushButton("↻ Rafraîchir")
         btn_refresh.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn_refresh.setStyleSheet("color: #cdd6f4; background: #313244; border-radius: 4px;")
-        btn_refresh.setMinimumHeight(28)
+        btn_refresh.setMinimumHeight(26)
         btn_refresh.clicked.connect(self._refresh_file_list)
         layout.addWidget(btn_refresh)
 
@@ -231,19 +247,46 @@ class TrainingWindow(QMainWindow):
 
     def _refresh_file_list(self):
         self.file_list.clear()
-        if not os.path.isdir(self._training_folder):
+        if not os.path.isdir(self._current_folder):
             return
-        files = sorted([
-            f for f in os.listdir(self._training_folder)
-            if f.endswith(".pgn")
-        ])
+
+        rel = os.path.relpath(self._current_folder, self._training_folder)
+        self.lbl_path.setText("/" if rel == "." else f"/{rel.replace(os.sep, '/')}")
+        self.btn_up.setEnabled(self._current_folder != self._training_folder)
+
+        entries = os.listdir(self._current_folder)
+        folders = sorted([e for e in entries
+                          if os.path.isdir(os.path.join(self._current_folder, e))])
+        files   = sorted([e for e in entries if e.endswith(".pgn")])
+
+        for folder in folders:
+            item = QListWidgetItem(f"📁  {folder}")
+            item.setData(Qt.ItemDataRole.UserRole,
+                         ("folder", os.path.join(self._current_folder, folder)))
+            item.setForeground(QColor("#f9e2af"))
+            self.file_list.addItem(item)
+
         for f in files:
             item = QListWidgetItem(f"♟  {f[:-4]}")
             item.setData(Qt.ItemDataRole.UserRole,
-                         os.path.join(self._training_folder, f))
+                         ("pgn", os.path.join(self._current_folder, f)))
             self.file_list.addItem(item)
+
         if self.file_list.count() > 0:
             self.file_list.setCurrentRow(0)
+
+    def _go_up(self):
+        if self._current_folder != self._training_folder:
+            self._current_folder = os.path.dirname(self._current_folder)
+            self._refresh_file_list()
+
+    def _on_item_double_clicked(self, item: QListWidgetItem):
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if data and data[0] == "folder":
+            self._current_folder = data[1]
+            self._refresh_file_list()
+        elif data and data[0] == "pgn":
+            self._start_training()
 
     # ---------------------------------------------------------------- #
     #  Démarrage de la session                                           #
@@ -255,7 +298,11 @@ class TrainingWindow(QMainWindow):
             self.status_bar.showMessage("Sélectionnez un fichier d'abord.")
             return
 
-        path = item.data(Qt.ItemDataRole.UserRole)
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if not data or data[0] != "pgn":
+            self.status_bar.showMessage("Sélectionnez un fichier PGN.")
+            return
+        path = data[1]
         exercises = self._build_exercises(path)
 
         if not exercises:
@@ -264,7 +311,8 @@ class TrainingWindow(QMainWindow):
 
         self._session = TrainingSession(exercises)
         filename = os.path.basename(path)[:-4]
-        self.lbl_file.setText(f"Fichier : {filename}")
+        folder_name = os.path.basename(os.path.dirname(path))
+        self.lbl_file.setText(f"{folder_name} / {filename}")
         self._load_exercise()
 
     def _build_exercises(self, path: str) -> list:
