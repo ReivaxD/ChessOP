@@ -1,12 +1,12 @@
 """
-Fenêtre principale de ChessOP — point d'entrée et menu des modules.
+Fenêtre d'accueil — menu principal de ChessOP.
 """
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QFrame, QSizePolicy
+    QPushButton, QLabel, QFrame, QGridLayout
 )
-from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
 
 
 class ModuleCard(QFrame):
@@ -23,23 +23,12 @@ class ModuleCard(QFrame):
 
         if available:
             self.setStyleSheet("""
-                QFrame {
-                    background: #2a2a3e;
-                    border: 2px solid #404060;
-                    border-radius: 12px;
-                }
-                QFrame:hover {
-                    background: #353550;
-                    border: 2px solid #7c6af7;
-                }
+                QFrame { background: #2a2a3e; border: 2px solid #404060; border-radius: 12px; }
+                QFrame:hover { background: #353550; border: 2px solid #7c6af7; }
             """)
         else:
             self.setStyleSheet("""
-                QFrame {
-                    background: #1a1a28;
-                    border: 2px solid #2a2a40;
-                    border-radius: 12px;
-                }
+                QFrame { background: #1a1a28; border: 2px solid #2a2a40; border-radius: 12px; }
             """)
 
         layout = QVBoxLayout(self)
@@ -81,12 +70,16 @@ class ModuleCard(QFrame):
 
     def mousePressEvent(self, event):
         if self.available:
-            self.parent().parent()._on_card_clicked(self)
+            # Remonter jusqu'à MainLauncher
+            parent = self.parent()
+            while parent and not isinstance(parent, MainLauncher):
+                parent = parent.parent()
+            if parent:
+                parent._on_card_clicked(self)
         super().mousePressEvent(event)
 
 
 class MainLauncher(QMainWindow):
-    """Fenêtre d'accueil — menu principal de ChessOP."""
 
     def __init__(self):
         super().__init__()
@@ -107,7 +100,6 @@ class MainLauncher(QMainWindow):
         root.setSpacing(20)
 
         # En-tête
-        header = QVBoxLayout()
         lbl_logo = QLabel("♟")
         lbl_logo.setFont(QFont("Segoe UI Emoji", 48))
         lbl_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -123,18 +115,17 @@ class MainLauncher(QMainWindow):
         lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_sub.setStyleSheet("color: #6c7086;")
 
-        header.addWidget(lbl_logo)
-        header.addWidget(lbl_title)
-        header.addWidget(lbl_sub)
-        root.addLayout(header)
+        root.addWidget(lbl_logo)
+        root.addWidget(lbl_title)
+        root.addWidget(lbl_sub)
 
-        # Grille de cartes — 2 lignes
+        # Grille 2 lignes
         self._cards = {
-            "analysis": ModuleCard("🔍", "Analyse",      "Analysez vos parties\net variantes"),
-            "openings": ModuleCard("📖", "Ouvertures",   "Base d'ouvertures",           available=False),
-            "training": ModuleCard("🎯", "Entraînement", "Puzzles et exercices",         available=False),
-            "tactics":  ModuleCard("⚔️",  "Tactique",    "Exercices tactiques",          available=False),
-            "database": ModuleCard("🗄️", "Base de données", "Parties de référence",     available=False),
+            "analysis": ModuleCard("🔍", "Analyse",       "Analysez vos parties\net variantes"),
+            "openings": ModuleCard("📖", "Ouvertures",    "Base d'ouvertures",           available=False),
+            "training": ModuleCard("🎯", "Entraînement",  "Devinez le prochain coup"),
+            "tactics":  ModuleCard("⚔️",  "Tactique",     "Exercices tactiques",         available=False),
+            "database": ModuleCard("🗄️", "Base de données","Parties de référence",       available=False),
         }
 
         row1 = QHBoxLayout()
@@ -157,34 +148,40 @@ class MainLauncher(QMainWindow):
         root.addLayout(row2)
         root.addStretch()
 
-        # Version
-        lbl_version = QLabel("v1.6.0")
+        lbl_version = QLabel("v1.5.0")
         lbl_version.setAlignment(Qt.AlignmentFlag.AlignRight)
         lbl_version.setStyleSheet("color: #313244; font-size: 10px;")
         root.addWidget(lbl_version)
 
     def _on_card_clicked(self, card: ModuleCard):
-        key = [k for k, v in self._cards.items() if v is card][0]
-
+        key = next((k for k, v in self._cards.items() if v is card), None)
         if key == "analysis":
-            self._open_analysis()
+            self._open_window("analysis")
+        elif key == "training":
+            self._open_window("training")
 
-    def _open_analysis(self):
-        if "analysis" not in self._child_windows:
-            from ui.analysis_window import AnalysisWindow
-            win = AnalysisWindow()
+    def _open_window(self, key: str):
+        if key not in self._child_windows:
+            if key == "analysis":
+                from ui.analysis_window import AnalysisWindow
+                win = AnalysisWindow()
+            elif key == "training":
+                from ui.training_window import TrainingWindow
+                win = TrainingWindow()
+            else:
+                return
             win.home_requested.connect(self._show_launcher)
-            self._child_windows["analysis"] = win
+            self._child_windows[key] = win
+
         self.hide()
-        self._child_windows["analysis"].show()
-        self._child_windows["analysis"].activateWindow()
+        self._child_windows[key].show()
+        self._child_windows[key].activateWindow()
 
     def _show_launcher(self):
         self.show()
         self.activateWindow()
 
     def _cleanup(self):
-        """Arrêt propre de tous les moteurs avant fermeture."""
         for win in self._child_windows.values():
             if hasattr(win, "engine"):
                 win.engine.unload()

@@ -20,7 +20,6 @@ from ui.variants_panel import VariantsPanel
 
 ANALYSIS_PANEL_WIDTH = 380
 VARIANTS_PANEL_WIDTH  = 240
-VARIANTS_PANEL_WIDTH  = 240
 
 
 class AnalysisWindow(QMainWindow):

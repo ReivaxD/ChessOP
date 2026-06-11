@@ -1,3 +1,4 @@
+__pycache__/
 stockfish/
 ressources/echec/analyses/Mes parties
-__pycache__/
+ressources/echec/entrainement/trompowsky attack
