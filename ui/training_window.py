@@ -1,7 +1,5 @@
 """
 Mode Entraînement — ChessOP
-Charge des variantes PGN, choisit une position aléatoire,
-et demande au joueur de deviner le prochain coup.
 """
 import os
 import random
@@ -12,31 +10,40 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QListWidget, QListWidgetItem,
     QFrame, QSizePolicy, QStatusBar, QProgressBar
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
 
 from ui.board_widget import BoardWidget
 
+# Modes d'entraînement
+MODE_DEBUT  = "debut"
+MODE_HASARD = "hasard"
+MODE_BLANC  = "blanc"
+MODE_NOIR   = "noir"
 
-# ------------------------------------------------------------------ #
-#  Données d'une session d'entraînement                               #
-# ------------------------------------------------------------------ #
 
 class TrainingSession:
-    """Représente une séquence de positions à deviner."""
+    """Séquence de positions — chaque entrée = (board_avant, coup_correct, san, board_apres)"""
 
-    def __init__(self, nodes: list):
-        """nodes : liste de (board_before, correct_move, board_after)"""
-        self.exercises = nodes
-        self.index     = 0
-        self.score     = 0
-        self.total     = len(nodes)
+    def __init__(self, exercises: list, player_color=None):
+        self.exercises    = exercises
+        self.player_color = player_color  # None = tous, WHITE/BLACK = filtré
+        self.index        = 0
+        self.score        = 0
+        self.total        = len(exercises)
+        # Calculer max_score une seule fois à l'init
+        if player_color is None:
+            self.max_score = self.total
+        else:
+            self.max_score = sum(
+                1 for board_before, _, _, _ in exercises
+                if board_before.turn == player_color
+            )
+        print(f"[SESSION] total={self.total} max_score={self.max_score} color={player_color}")
 
     @property
     def current(self):
-        if self.index < self.total:
-            return self.exercises[self.index]
-        return None
+        return self.exercises[self.index] if self.index < self.total else None
 
     @property
     def finished(self):
@@ -45,14 +52,16 @@ class TrainingSession:
     def advance(self):
         self.index += 1
 
+    def is_player_turn(self) -> bool:
+        """Retourne True si c'est au joueur de deviner."""
+        if self.player_color is None or self.current is None:
+            return True
+        board_before, _, _, _ = self.current
+        return board_before.turn == self.player_color
 
-# ------------------------------------------------------------------ #
-#  Fenêtre principale                                                  #
-# ------------------------------------------------------------------ #
 
 class TrainingWindow(QMainWindow):
 
-    from PyQt6.QtCore import pyqtSignal
     home_requested = pyqtSignal()
 
     def __init__(self):
@@ -66,6 +75,7 @@ class TrainingWindow(QMainWindow):
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "ressources", "echec", "entrainement"
         )
+        self._current_folder = self._training_folder
         os.makedirs(self._training_folder, exist_ok=True)
 
         self._build_ui()
@@ -82,16 +92,13 @@ class TrainingWindow(QMainWindow):
         root.setSpacing(12)
         root.setContentsMargins(12, 12, 12, 12)
 
-        # Panneau gauche — fichiers
         root.addWidget(self._build_file_panel())
 
-        # Échiquier
         self.board = BoardWidget()
         self.board.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.board.move_requested.connect(self._on_move)
         root.addWidget(self.board, stretch=2)
 
-        # Panneau droit — score et contrôles
         root.addLayout(self._build_score_panel())
 
         self.status_bar = QStatusBar()
@@ -100,12 +107,12 @@ class TrainingWindow(QMainWindow):
 
     def _build_file_panel(self) -> QFrame:
         frame = QFrame()
-        frame.setFixedWidth(220)
+        frame.setFixedWidth(230)
         frame.setFrameShape(QFrame.Shape.StyledPanel)
         frame.setStyleSheet("QFrame { background: #1e1e2e; border-radius: 6px; }")
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setSpacing(5)
 
         title = QLabel("Fichiers d'entraînement")
         title.setFont(QFont("Arial", 11, QFont.Weight.Bold))
@@ -113,14 +120,11 @@ class TrainingWindow(QMainWindow):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        # Chemin courant
-        self._current_folder = self._training_folder
         self.lbl_path = QLabel("/")
         self.lbl_path.setStyleSheet("color: #89b4fa; font-size: 10px;")
         self.lbl_path.setWordWrap(True)
         layout.addWidget(self.lbl_path)
 
-        # Bouton dossier parent
         self.btn_up = QPushButton("⬆  Dossier parent")
         self.btn_up.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_up.setStyleSheet("color: #cdd6f4; background: #313244; border-radius: 4px;")
@@ -132,7 +136,7 @@ class TrainingWindow(QMainWindow):
         self.file_list.setStyleSheet("""
             QListWidget { background: #181825; color: #cdd6f4;
                           border: none; border-radius: 4px; font-size: 12px; }
-            QListWidget::item { padding: 6px 8px; border-bottom: 1px solid #313244; }
+            QListWidget::item { padding: 5px 8px; border-bottom: 1px solid #313244; }
             QListWidget::item:selected { background: #313244; color: #89b4fa; }
             QListWidget::item:hover { background: #252535; }
         """)
@@ -142,18 +146,40 @@ class TrainingWindow(QMainWindow):
         btn_refresh = QPushButton("↻ Rafraîchir")
         btn_refresh.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn_refresh.setStyleSheet("color: #cdd6f4; background: #313244; border-radius: 4px;")
-        btn_refresh.setMinimumHeight(26)
+        btn_refresh.setMinimumHeight(24)
         btn_refresh.clicked.connect(self._refresh_file_list)
         layout.addWidget(btn_refresh)
 
-        self.btn_start = QPushButton("▶  Lancer")
-        self.btn_start.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_start.setStyleSheet(
-            "color: white; background: #2a7a2a; border-radius: 4px; font-weight: bold;"
-        )
-        self.btn_start.setMinimumHeight(34)
-        self.btn_start.clicked.connect(self._start_training)
-        layout.addWidget(self.btn_start)
+        # 4 boutons de lancement
+        sep = QLabel("── Lancer ──")
+        sep.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sep.setStyleSheet("color: #6c7086; font-size: 10px;")
+        layout.addWidget(sep)
+
+        btn_style_green  = "color: white; background: #2a7a2a; border-radius: 4px; font-weight: bold;"
+        btn_style_blue   = "color: white; background: #1a5a8a; border-radius: 4px; font-weight: bold;"
+        btn_style_orange = "color: white; background: #8a5a1a; border-radius: 4px; font-weight: bold;"
+        btn_style_purple = "color: white; background: #5a1a8a; border-radius: 4px; font-weight: bold;"
+
+        self.btn_debut  = QPushButton("▶  Depuis le début")
+        self.btn_hasard = QPushButton("🎲  Position aléatoire")
+        self.btn_blanc  = QPushButton("♔  Entraîner les blancs")
+        self.btn_noir   = QPushButton("♚  Entraîner les noirs")
+
+        self.btn_debut.setStyleSheet(btn_style_green)
+        self.btn_hasard.setStyleSheet(btn_style_blue)
+        self.btn_blanc.setStyleSheet(btn_style_orange)
+        self.btn_noir.setStyleSheet(btn_style_purple)
+
+        for btn in (self.btn_debut, self.btn_hasard, self.btn_blanc, self.btn_noir):
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setMinimumHeight(30)
+            layout.addWidget(btn)
+
+        self.btn_debut.clicked.connect(lambda: self._start_training(MODE_DEBUT))
+        self.btn_hasard.clicked.connect(lambda: self._start_training(MODE_HASARD))
+        self.btn_blanc.clicked.connect(lambda: self._start_training(MODE_BLANC))
+        self.btn_noir.clicked.connect(lambda: self._start_training(MODE_NOIR))
 
         return frame
 
@@ -161,7 +187,6 @@ class TrainingWindow(QMainWindow):
         side = QVBoxLayout()
         side.setSpacing(10)
 
-        # Bouton accueil
         self.btn_home = QPushButton("⌂  Accueil")
         self.btn_home.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_home.setStyleSheet(
@@ -170,6 +195,14 @@ class TrainingWindow(QMainWindow):
         self.btn_home.setMinimumHeight(34)
         self.btn_home.clicked.connect(self._go_home)
         side.addWidget(self.btn_home)
+
+        # Retourner l'échiquier
+        btn_flip = QPushButton("⇄  Retourner l'échiquier")
+        btn_flip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_flip.setStyleSheet("color: #cdd6f4; background: #313244; border-radius: 4px;")
+        btn_flip.setMinimumHeight(30)
+        btn_flip.clicked.connect(self.board.flip_board)
+        side.addWidget(btn_flip)
 
         # Score
         grp_score = QFrame()
@@ -199,6 +232,12 @@ class TrainingWindow(QMainWindow):
         score_layout.addWidget(self.progress_bar)
         side.addWidget(grp_score)
 
+        # Mode actif
+        self.lbl_mode = QLabel("")
+        self.lbl_mode.setStyleSheet("color: #89b4fa; font-size: 11px;")
+        self.lbl_mode.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        side.addWidget(self.lbl_mode)
+
         # Feedback
         self.lbl_feedback = QLabel("")
         self.lbl_feedback.setFont(QFont("Arial", 13, QFont.Weight.Bold))
@@ -207,32 +246,26 @@ class TrainingWindow(QMainWindow):
         self.lbl_feedback.setMinimumHeight(60)
         side.addWidget(self.lbl_feedback)
 
-        # Infos position
+        # Infos
         grp_info = QFrame()
         grp_info.setFrameShape(QFrame.Shape.StyledPanel)
         grp_info.setStyleSheet("QFrame { background: #1e1e2e; border-radius: 6px; }")
         info_layout = QVBoxLayout(grp_info)
-
-        self.lbl_file = QLabel("Fichier : —")
+        self.lbl_file     = QLabel("Fichier : —")
         self.lbl_file.setStyleSheet("color: #6c7086; font-size: 11px;")
         self.lbl_file.setWordWrap(True)
-        info_layout.addWidget(self.lbl_file)
-
-        self.lbl_position = QLabel("Position : —")
+        self.lbl_position = QLabel("Exercice : —")
         self.lbl_position.setStyleSheet("color: #6c7086; font-size: 11px;")
-        info_layout.addWidget(self.lbl_position)
-
-        self.lbl_turn = QLabel("")
+        self.lbl_turn     = QLabel("")
         self.lbl_turn.setStyleSheet("color: #cdd6f4; font-size: 12px; font-weight: bold;")
-        info_layout.addWidget(self.lbl_turn)
+        for w in (self.lbl_file, self.lbl_position, self.lbl_turn):
+            info_layout.addWidget(w)
         side.addWidget(grp_info)
 
         # Bouton passer
         self.btn_skip = QPushButton("Passer →")
         self.btn_skip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_skip.setStyleSheet(
-            "color: #f38ba8; background: #313244; border-radius: 4px;"
-        )
+        self.btn_skip.setStyleSheet("color: #f38ba8; background: #313244; border-radius: 4px;")
         self.btn_skip.setMinimumHeight(32)
         self.btn_skip.clicked.connect(self._skip_exercise)
         self.btn_skip.setEnabled(False)
@@ -242,14 +275,13 @@ class TrainingWindow(QMainWindow):
         return side
 
     # ---------------------------------------------------------------- #
-    #  Fichiers                                                          #
+    #  Navigation fichiers                                               #
     # ---------------------------------------------------------------- #
 
     def _refresh_file_list(self):
         self.file_list.clear()
         if not os.path.isdir(self._current_folder):
             return
-
         rel = os.path.relpath(self._current_folder, self._training_folder)
         self.lbl_path.setText("/" if rel == "." else f"/{rel.replace(os.sep, '/')}")
         self.btn_up.setEnabled(self._current_folder != self._training_folder)
@@ -286,61 +318,77 @@ class TrainingWindow(QMainWindow):
             self._current_folder = data[1]
             self._refresh_file_list()
         elif data and data[0] == "pgn":
-            self._start_training()
+            self._start_training(MODE_DEBUT)
 
-    # ---------------------------------------------------------------- #
-    #  Démarrage de la session                                           #
-    # ---------------------------------------------------------------- #
-
-    def _start_training(self):
+    def _get_selected_path(self):
         item = self.file_list.currentItem()
         if not item:
-            self.status_bar.showMessage("Sélectionnez un fichier d'abord.")
-            return
-
+            return None
         data = item.data(Qt.ItemDataRole.UserRole)
         if not data or data[0] != "pgn":
+            return None
+        return data[1]
+
+    # ---------------------------------------------------------------- #
+    #  Construction des exercices                                        #
+    # ---------------------------------------------------------------- #
+
+    def _start_training(self, mode: str):
+        path = self._get_selected_path()
+        if not path:
             self.status_bar.showMessage("Sélectionnez un fichier PGN.")
             return
-        path = data[1]
-        exercises = self._build_exercises(path)
 
+        exercises = self._build_exercises(path, mode)
         if not exercises:
             self.status_bar.showMessage("Aucune position jouable dans ce fichier.")
             return
 
-        self._session = TrainingSession(exercises)
+        player_color = None
+        if mode == MODE_BLANC:
+            player_color = chess.WHITE
+        elif mode == MODE_NOIR:
+            player_color = chess.BLACK
+
+        self._session = TrainingSession(exercises, player_color)
+
+        mode_labels = {
+            MODE_DEBUT:  "Depuis le début",
+            MODE_HASARD: "Position aléatoire",
+            MODE_BLANC:  "Entraîner les blancs",
+            MODE_NOIR:   "Entraîner les noirs",
+        }
+        self.lbl_mode.setText(f"Mode : {mode_labels.get(mode, mode)}")
+
         filename = os.path.basename(path)[:-4]
-        folder_name = os.path.basename(os.path.dirname(path))
-        self.lbl_file.setText(f"{folder_name} / {filename}")
+        folder   = os.path.basename(os.path.dirname(path))
+        self.lbl_file.setText(f"{folder} / {filename}")
+
         self._load_exercise()
 
-    def _build_exercises(self, path: str) -> list:
-        """
-        Charge le PGN, collecte toutes les positions où il y a un coup suivant,
-        choisit une position aléatoire et construit une séquence linéaire depuis là.
-        """
+    def _build_exercises(self, path: str, mode: str) -> list:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 game = chess.pgn.read_game(f)
             if game is None:
                 return []
 
-            # Reconstruire la liste de tous les coups de la ligne principale
-            board = game.board()
             moves = list(game.mainline_moves())
-            if len(moves) < 2:
+            if len(moves) < 1:
                 return []
 
-            # Choisir un point de départ aléatoire (pas le dernier coup)
-            max_start = len(moves) - 1
-            start_idx = random.randint(0, max_start - 1)
+            board = game.board()
 
-            # Construire la liste des exercices depuis start_idx
+            # Point de départ selon le mode
+            if mode == MODE_HASARD and len(moves) > 1:
+                start = random.randint(0, len(moves) - 2)
+            else:
+                start = 0
+
             exercises = []
-            b = game.board()
+            b = board.copy()
             for i, move in enumerate(moves):
-                if i >= start_idx:
+                if i >= start:
                     board_before = b.copy()
                     san = b.san(move)
                     b.push(move)
@@ -351,7 +399,7 @@ class TrainingWindow(QMainWindow):
             return exercises
 
         except Exception as e:
-            print(f"Erreur chargement entraînement : {e}")
+            print(f"Erreur : {e}")
             return []
 
     # ---------------------------------------------------------------- #
@@ -363,23 +411,43 @@ class TrainingWindow(QMainWindow):
             self._show_final_score()
             return
 
-        board_before, correct_move, san, board_after = self._session.current
+        board_before, correct_move, san, _ = self._session.current
         self.board.update_board(board_before)
         self.board.set_hint_move(None)
         self.board.set_last_move(None)
 
         turn = "Blancs" if board_before.turn == chess.WHITE else "Noirs"
-        move_num = board_before.fullmove_number
-        self.lbl_turn.setText(f"Tour {move_num} — {turn} jouent")
+        self.lbl_turn.setText(f"Tour {board_before.fullmove_number} — {turn}")
         self.lbl_position.setText(
             f"Exercice {self._session.index + 1} / {self._session.total}"
         )
         self._update_score_display()
-        self.lbl_feedback.setText("Quel est le meilleur coup ?")
-        self.lbl_feedback.setStyleSheet("color: #cdd6f4; font-size: 13px; font-weight: bold;")
-        self._waiting_for_move = True
-        self.btn_skip.setEnabled(True)
-        self.status_bar.showMessage(f"Exercice {self._session.index + 1}/{self._session.total} — jouez !")
+
+        if self._session.is_player_turn():
+            self.lbl_feedback.setText("Quel est le meilleur coup ?")
+            self.lbl_feedback.setStyleSheet("color: #cdd6f4; font-size: 13px; font-weight: bold;")
+            self._waiting_for_move = True
+            self.btn_skip.setEnabled(True)
+            self.status_bar.showMessage(
+                f"Exercice {self._session.index + 1}/{self._session.total} — jouez !"
+            )
+        else:
+            # Coup adverse — jouer automatiquement après un court délai
+            self._waiting_for_move = False
+            self.btn_skip.setEnabled(False)
+            self.lbl_feedback.setText(f"Adversaire : {san}")
+            self.lbl_feedback.setStyleSheet("color: #6c7086; font-size: 12px;")
+            QTimer.singleShot(800, self._auto_play_opponent)
+
+    def _auto_play_opponent(self):
+        """Joue automatiquement le coup de l'adversaire."""
+        if self._session is None or self._session.finished:
+            return
+        _, correct_move, san, board_after = self._session.current
+        self.board.update_board(board_after)
+        self.board.set_last_move(correct_move)
+        self._session.advance()
+        QTimer.singleShot(400, self._load_exercise)
 
     def _on_move(self, move: chess.Move):
         if not self._waiting_for_move or self._session is None:
@@ -389,7 +457,6 @@ class TrainingWindow(QMainWindow):
         board_before, correct_move, san, board_after = self._session.current
 
         if move == correct_move:
-            # Bon coup
             self._session.score += 1
             self.lbl_feedback.setText(f"✓  Correct !  {san}")
             self.lbl_feedback.setStyleSheet(
@@ -398,9 +465,9 @@ class TrainingWindow(QMainWindow):
             self.board.update_board(board_after)
             self.board.set_last_move(move)
             self._update_score_display()
-            QTimer.singleShot(1200, self._next_exercise)
+            self._session.advance()
+            QTimer.singleShot(1200, self._load_exercise)
         else:
-            # Mauvais coup — montrer le bon
             try:
                 played_san = board_before.san(move)
             except Exception:
@@ -409,10 +476,9 @@ class TrainingWindow(QMainWindow):
             self.lbl_feedback.setStyleSheet(
                 "color: #f38ba8; font-size: 13px; font-weight: bold;"
             )
-            # Afficher la flèche du bon coup
             self.board.set_hint_move(correct_move)
-            self.board.update_board(board_before)
-            QTimer.singleShot(2000, self._next_exercise)
+            self._session.advance()
+            QTimer.singleShot(2000, self._load_exercise)
 
     def _skip_exercise(self):
         if not self._session or self._session.finished:
@@ -422,40 +488,30 @@ class TrainingWindow(QMainWindow):
         self.lbl_feedback.setStyleSheet("color: #f39c12; font-size: 13px;")
         self.board.set_hint_move(correct_move)
         self._waiting_for_move = False
-        QTimer.singleShot(1500, self._next_exercise)
-
-    def _next_exercise(self):
-        self.board.set_hint_move(None)
         self._session.advance()
-        self._load_exercise()
+        QTimer.singleShot(1500, self._load_exercise)
 
     def _update_score_display(self):
         if self._session:
-            s = self._session.score
-            t = self._session.total
+            s  = self._session.score
+            ms = self._session.max_score
+            t  = self._session.total
             done = self._session.index
-            self.lbl_score.setText(f"{s} / {t}")
-            pct = int((done / t) * 100) if t > 0 else 0
-            self.progress_bar.setValue(pct)
+            self.lbl_score.setText(f"{s} / {ms}")
+            self.progress_bar.setValue(int((done / t) * 100) if t > 0 else 0)
 
     def _show_final_score(self):
         self._waiting_for_move = False
         self.btn_skip.setEnabled(False)
-        s = self._session.score
-        t = self._session.total
-        pct = int((s / t) * 100) if t > 0 else 0
-        self.lbl_feedback.setText(
-            f"Terminé !\n{s}/{t} coups corrects ({pct}%)"
-        )
+        s  = self._session.score
+        ms = self._session.max_score
+        pct = int((s / ms) * 100) if ms > 0 else 0
+        self.lbl_feedback.setText(f"Terminé !\n{s}/{ms} corrects ({pct}%)")
         self.lbl_feedback.setStyleSheet(
             "color: #f0c040; font-size: 15px; font-weight: bold;"
         )
         self.progress_bar.setValue(100)
-        self.status_bar.showMessage(f"Session terminée — score : {s}/{t} ({pct}%)")
-
-    # ---------------------------------------------------------------- #
-    #  Navigation                                                        #
-    # ---------------------------------------------------------------- #
+        self.status_bar.showMessage(f"Session terminée — {s}/{ms} ({pct}%)")
 
     def _go_home(self):
         self.hide()
