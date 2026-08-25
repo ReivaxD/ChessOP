@@ -124,7 +124,6 @@ class MainLauncher(QMainWindow):
             "analysis": ModuleCard("🔍", "Analyse",       "Analysez vos parties\net variantes"),
             "training": ModuleCard("🎯", "Entraînement",  "Devinez le prochain coup"),
             "tactics":  ModuleCard("⚔️",  "Tactique",     "Exercices tactiques"),
-            "database": ModuleCard("🗄️", "Base de données","Parties de référence",       available=False),
         }
 
         row1 = QHBoxLayout()
@@ -135,16 +134,7 @@ class MainLauncher(QMainWindow):
             card.setParent(central)
             row1.addWidget(card)
 
-        row2 = QHBoxLayout()
-        row2.setSpacing(20)
-        row2.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        for key in ("database",):
-            card = self._cards[key]
-            card.setParent(central)
-            row2.addWidget(card)
-
         root.addLayout(row1)
-        root.addLayout(row2)
         root.addStretch()
 
         lbl_version = QLabel("v1.8.0")
