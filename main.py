@@ -10,7 +10,7 @@ from ui.main_launcher import MainLauncher
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("ChessOP")
-    app.setApplicationVersion("1.7.0")
+    app.setApplicationVersion("1.8.0")
 
     launcher = MainLauncher()
     launcher.show()

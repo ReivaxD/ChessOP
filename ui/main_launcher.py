@@ -124,7 +124,7 @@ class MainLauncher(QMainWindow):
             "analysis": ModuleCard("🔍", "Analyse",       "Analysez vos parties\net variantes"),
             "openings": ModuleCard("📖", "Ouvertures",    "Base d'ouvertures",           available=False),
             "training": ModuleCard("🎯", "Entraînement",  "Devinez le prochain coup"),
-            "tactics":  ModuleCard("⚔️",  "Tactique",     "Exercices tactiques",         available=False),
+            "tactics":  ModuleCard("⚔️",  "Tactique",     "Exercices tactiques"),
             "database": ModuleCard("🗄️", "Base de données","Parties de référence",       available=False),
         }
 
@@ -148,17 +148,15 @@ class MainLauncher(QMainWindow):
         root.addLayout(row2)
         root.addStretch()
 
-        lbl_version = QLabel("v1.5.0")
+        lbl_version = QLabel("v1.8.0")
         lbl_version.setAlignment(Qt.AlignmentFlag.AlignRight)
         lbl_version.setStyleSheet("color: #313244; font-size: 10px;")
         root.addWidget(lbl_version)
 
     def _on_card_clicked(self, card: ModuleCard):
         key = next((k for k, v in self._cards.items() if v is card), None)
-        if key == "analysis":
-            self._open_window("analysis")
-        elif key == "training":
-            self._open_window("training")
+        if key in ("analysis", "training", "tactics"):
+            self._open_window(key)
 
     def _open_window(self, key: str):
         if key not in self._child_windows:
@@ -168,6 +166,9 @@ class MainLauncher(QMainWindow):
             elif key == "training":
                 from ui.training_window import TrainingWindow
                 win = TrainingWindow()
+            elif key == "tactics":
+                from ui.tactics_window import TacticsWindow
+                win = TacticsWindow()
             else:
                 return
             win.home_requested.connect(self._show_launcher)

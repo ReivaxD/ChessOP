@@ -1,0 +1,21 @@
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "?"]
+[Black "?"]
+[Result "*"]
+[SetUp "1"]
+[FEN "8/8/8/7P/2pkp3/8/4K1P1/8 b - - 0 48"]
+[Puzzle_Length "5"]
+[Tactic_line "h6 c2 Kd2 e3+ Kxc2 e2 Kd2 e1=Q+ Kxe1"]
+[Link "https://www.chess.com/puzzles/problem/1263019"]
+
+48... c3 49. h6 ({0.00} 49. g4 Ke5 50. g5 Kf5 51. g6 Kf6 52. Ke3 Kg7 53. Ke2 Kh6 $12) 49... c2 50. Kd2 ({0.00} 50. h7 c1=Q 51. h8=Q+ Kd5 52. Qd8+ Ke5 53. Qe8+ Kd5
+54. Qf7+ Ke5 $12) ({♚ Mate in 9} 50. Kf2 c1=Q 51. h7 e3+ 52. Kf3 Qh1 53. h8=Q+
+Qxh8 54. g4 Qe5 −+) 50... e3+ 51. Kxc2 ({♚ Mate in 6} 51. Kc1 Kd3 52. Kb2 e2 53.
+Kb3 e1=Q 54. h7 c1=Q 55. h8=B Qc2+ −+) ({♚ Mate in 4} 51. Ke2 Ke4 52. h7 c1=Q
+53. h8=Q Qd2+ 54. Kf1 Qf2# −+) 51... e2 52. Kd2 ({+0.13} 52. h7 e1=Q 53. h8=Q+
+Qe5 54. Qxe5+ Kxe5 55. Kd2 Kf4 56. Ke2 Kg3 $12) ({♚ Mate in 7} 52. Kb2 e1=Q 53. h7
+Qc3+ 54. Kb1 Kd3 55. h8=Q Qxh8 56. Ka2 Qb8 −+) 52... e1=Q+ 53. Kxe1 ({♚ Mate in
+4} 53. Kc2 Qc3+ 54. Kb1 Qb3+ 55. Kc1 Kc3 56. h7 Qc2# −+) *
