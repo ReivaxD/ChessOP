@@ -122,7 +122,6 @@ class MainLauncher(QMainWindow):
         # Grille 2 lignes
         self._cards = {
             "analysis": ModuleCard("🔍", "Analyse",       "Analysez vos parties\net variantes"),
-            "openings": ModuleCard("📖", "Ouvertures",    "Base d'ouvertures",           available=False),
             "training": ModuleCard("🎯", "Entraînement",  "Devinez le prochain coup"),
             "tactics":  ModuleCard("⚔️",  "Tactique",     "Exercices tactiques"),
             "database": ModuleCard("🗄️", "Base de données","Parties de référence",       available=False),
@@ -131,7 +130,7 @@ class MainLauncher(QMainWindow):
         row1 = QHBoxLayout()
         row1.setSpacing(20)
         row1.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        for key in ("analysis", "openings", "training"):
+        for key in ("analysis", "training", "tactics"):
             card = self._cards[key]
             card.setParent(central)
             row1.addWidget(card)
@@ -139,7 +138,7 @@ class MainLauncher(QMainWindow):
         row2 = QHBoxLayout()
         row2.setSpacing(20)
         row2.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        for key in ("tactics", "database"):
+        for key in ("database",):
             card = self._cards[key]
             card.setParent(central)
             row2.addWidget(card)

@@ -71,12 +71,11 @@ class TrainingWindow(QMainWindow):
 
         self._session: TrainingSession = None
         self._waiting_for_move = False
-        self._training_folder = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "ressources", "echec", "entrainement"
-        )
-        self._current_folder = self._training_folder
-        os.makedirs(self._training_folder, exist_ok=True)
+        _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self._training_folder = os.path.join(_base, "ressources", "echec")
+        self._current_folder  = self._training_folder
+        os.makedirs(os.path.join(_base, "ressources", "echec", "entrainement"), exist_ok=True)
+        os.makedirs(os.path.join(_base, "ressources", "echec", "ouverture"), exist_ok=True)
 
         self._build_ui()
         self._refresh_file_list()

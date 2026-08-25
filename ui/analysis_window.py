@@ -66,7 +66,7 @@ class AnalysisWindow(QMainWindow):
         # ---- Panneau variantes (gauche, masqué par défaut) ----
         import os
         _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self._variants_folder = os.path.join(_base, "ressources", "echec", "analyses")
+        self._variants_folder = os.path.join(_base, "ressources", "echec")
         self.variants_panel = VariantsPanel(self._variants_folder)
         self.variants_panel.setFixedWidth(0)
         self.variants_panel.setVisible(False)
